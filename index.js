@@ -2,6 +2,8 @@ const express = require('express')
 const app = express()
 const axios = require('axios');
 const fs = require('fs');
+const AmazonWishList = require('./amazon-wl-parser');
+const cheerio =require('cheerio');
 // var AmazonWishList = require('amazon-wish-list');
 // var awl = new AmazonWishList.default('JQK192QOJWAT');
  //https://github.com/stylesuxx/amazon-wish-list
@@ -14,13 +16,27 @@ const fs = require('fs');
 
 //is just different in mx 
 
-//let list= await awl.getItems();
-app.get('/', function (req, res) {
+app.get('/wishlist', function (req, res) {
    // Make a request for a user with a given ID
-    axios.get('https://www.amazon.com/hz/wishlist/ls/3EGL33WZPAJ8Q')
+    axios.get('https://www.amazon.com.mx/hz/wishlist/ls/JQK192QOJWAT',{
+        scrollY:1000
+      })
     .then(function (response) {
+        console.log("response next: "+response.next);
+        const html = response.data;
+        const $ = cheerio.load(html);
+        let title=$('#profile-list-name').text();
+        let itemTitles=$('h3 .a-link-normal').text();
+        let prices=$('.price-section').text();
+        console.log(prices);
+        const titles=[];
+        itemTitles.split('\n').forEach(element => {
+            if(element.trim()!='')
+            titles.push(element);
+        });
+        console.log(titles);
         // handle success
-        fs.writeFile("test.txt", JSON.stringify(response), function(err) {
+        fs.writeFile("test.txt", $.text(), function(err) {
             if(err) {
                 return console.log(err);
             }
@@ -39,6 +55,14 @@ app.get('/', function (req, res) {
 
     res.send('hello world')
 })
+
+app.get('/', function (req, res) {
+    const htmlManager=new AmazonWishList();
+    htmlManager.getById('3EGL33WZPAJ8Q').then(function(list) {
+        console.log(list);
+      });
+     res.send('hello world')
+ })
 
 // awl.getById('3EGL33WZPAJ8Q').then(function(list) {
 //   console.log(list);

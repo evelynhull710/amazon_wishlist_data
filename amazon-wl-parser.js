@@ -1,8 +1,8 @@
-import rp from 'request-promise';
-import cheerio from 'cheerio';
+const rp = require('request-promise');
+const cheerio =require('cheerio');
 
 class AmazonWishList {
-  constructor(tld = 'de') {
+  constructor(tld = 'com') {
     this.baseUrl = ['https://amazon.', tld].join('');
     this.config = {
       profile: {
@@ -17,14 +17,14 @@ class AmazonWishList {
       list: {
         url: [this.baseUrl, 'gp/registry/wishlist/'].join('/'),
         selectors: {
-          title: '#wl-list-info h1',
+          title: '#profile-list-name',
           pageLinks: '.a-pagination li:not(.a-selected, .a-last) a',
           items: '#item-page-wrapper .g-items-section>div.a-fixed-left-grid',
-          itemTitle: 'h5',
-          itemId: 'h5 a',
+          itemTitle: '.a-link-normal',
+          itemId: 'h3 a',
           itemPriority: '.g-item-comment-row span span.a-hidden',
           itemComment: '.g-item-comment-row .g-comment-quote.a-text-quote',
-          itemPriceText: '.price-section .a-color-price'
+          itemPriceText: 'a-section price-section'
         }
       }
     };
@@ -55,9 +55,11 @@ class AmazonWishList {
     }
 
     this.getItems = function($) {
+      console.log($);
       return new Promise((resolve, reject) => {
         const selectors = this.config.list.selectors;
         const $items = $(selectors.items);
+        
         var items = [];
 
         $items.each((index, element) => {
@@ -141,7 +143,8 @@ class AmazonWishList {
       },
       transform: (body) => cheerio.load(body)
     };
-
+     console.log(options);
+     //console.log(options.transform);
     return rp(options).then(($) => {
       var promises = [];
       var list = {
@@ -172,4 +175,4 @@ class AmazonWishList {
   }
 }
 
-export default AmazonWishList;
+module.exports= AmazonWishList;
