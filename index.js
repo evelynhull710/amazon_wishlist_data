@@ -1,14 +1,18 @@
 const express = require('express')
 const app = express()
-const axios = require('axios');
+const AxiosRequest = require('./axios-request');
 const fs = require('fs');
 const AmazonWishList = require('./amazon-wl-parser');
 const cheerio = require('cheerio');
 const jwt_decode = require('jwt-decode');
 const { Parser } = require('json2csv');
 const BASE_URL_MX = 'https://www.amazon.com.mx';
-const PUBLIC_ID = 'JQK192QOJWAT'
+const PUBLIC_ID = 'JQK192QOJWAT';//wishlist
+//const PUBLIC_ID = '1SC1VTTG1NF8Y';//orders
 const START_URL_WL = `/hz/wishlist/ls/${PUBLIC_ID}`;
+const axios = new AxiosRequest();
+const csvtojson = require("csvtojson");
+const { title } = require('process');
 // var AmazonWishList = require('amazon-wish-list');
 // var awl = new AmazonWishList.default('JQK192QOJWAT');
 //https://github.com/stylesuxx/amazon-wish-list
@@ -93,46 +97,6 @@ app.get('/wishlist', async function (req, res) {
         console.log('Saved!');
     });
 
-
-    let reviews = [];
-    let listPrices = [];
-    let starsReviews = [];
-
-    //SCRAP EVERYTHING!!!!
-    await unique.forEach(async url => {
-        let response = await axios.get(BASE_URL_MX + url);
-        let html = response.data;
-        let $ = cheerio.load(html);
-        let stars = $('#averageCustomerReviews .a-icon-star .a-icon-alt').text();
-        let listPrice = $('#price_inside_buybox').text();
-        listPrices.push(listPrice);
-        console.log('listprice: ', listPrice);
-        console.log('stars: ', stars);
-        starsReviews.push(stars);
-        $('.cr-original-review-content').each(function () {
-            const text =
-                $(this).text();
-            // console.log('link: ', text);
-            reviews.push(text);
-            fs.appendFile('reviews.txt', text + "\n", function (err) {
-                if (err) throw err;
-                //console.log('Saved review!');
-            });
-        });
-
-
-
-
-        //console.log("review: ",review);
-        // console.log("STARS: ",stars);
-    });
-    console.log("links length: ", unique.length);
-    console.log('listprices length: ', listPrices.length);
-    fs.writeFile('prices.txt', listPrices.join('\n'), function (err) {
-        if (err) throw err;
-        // console.log('Saved prices!');
-    });
-
     res.send('SCRAPED DONE!')
 })
 
@@ -143,6 +107,9 @@ app.get('/reviews', async function (req, res) {
     let starsReviews = [];
     let dataComments = [];
     let seeMoreUrls = [];
+    let starRatings = [];
+    let commentRatings = [];
+
     console.log("unique length: ", unique.length);
     fs.writeFile('reviews.txt', '', function (err) {
         if (err) throw err;
@@ -157,47 +124,17 @@ app.get('/reviews', async function (req, res) {
         let $ = cheerio.load(html);
         let stars = $('#averageCustomerReviews .a-icon-star .a-icon-alt').text();
         let listPrice = $('#price_inside_buybox').text();
-        let seeMore = $('#cr-pagination-footer-0 .a-link-emphasis').attr('href');
-
+        let seeMore = $('#reviews-medley-footer .a-link-emphasis').attr('href');
+        let reviewsNumber=$('#acrCustomerReviewText').text();
         console.log("see more comments url: ", seeMore);
         //we just need the first value, we know its from 5 stars already
         let formatStars = stars.trim().split(" ")[0];
+        let formatReviews = reviewsNumber.trim().split(" ")[0];
+        console.log("format reviews: ", formatReviews);
         listPrices.push(listPrice);
         starsReviews.push(formatStars);
-
-        // if (seeMore == undefined) {
-        //     $('.cr-original-review-content').each(function () {
-        //         const text =
-        //             $(this).text();
-        //         let dataItem = {
-        //             url: url,
-        //             globalStars: formatStars,
-        //             price: listPrice,
-        //             comment: text,
-        //         };
-        //         dataComments.push(dataItem);
-        //         fs.appendFile('reviews.txt', text + "\n", function (err) {
-        //             if (err) throw err;
-        //             //console.log('Saved review!');
-        //         });
-        //     });
-        // } else {
-            if(seeMore!=undefined){
-            let response = await axios.get(BASE_URL_MX + seeMore);
-            let html = response.data;
-            let $ = cheerio.load(html);
-            let ratings = $('#filter-info-section span').text().split('|');
-            let starRating = ratings[0].trim().split(' ')[0];
-            let commentRating = ratings[1].trim().split(' ')[0];;
-            console.log(`starsRating: ${starRating}\ncommentRating ${commentRating}`);
-            $('.cr-original-review-content').each(function () { 
-
-                let commentSection=$('.a-section .review .aok-relative').each(function(i,element){
-                    
-                });
-                console.log(commentSection);
-            });
-        }
+        reviews.push(formatReviews);
+        seeMoreUrls.push(seeMore);
     };
     console.log("links length: ", unique.length);
     console.log('listprices length: ', listPrices.length);
@@ -208,12 +145,14 @@ app.get('/reviews', async function (req, res) {
         let item = {
             url: unique[x],
             price: listPrices[x],
-            stars: starsReviews[x]
+            stars: starsReviews[x],
+            commentsurl: seeMoreUrls[x],
+            reviews:reviews[x]
         }
         shopItems.push(item);
     }
 
-    const fields = ['url', 'price', 'stars'];
+    const fields = ['url', 'price', 'stars', 'commentsurl','reviews'];
     const opts = { fields };
     const parser = new Parser(opts);
     const csv = parser.parse(shopItems);
@@ -228,6 +167,197 @@ app.get('/reviews', async function (req, res) {
     res.send('hello world')
 })
 
+app.get('/getReviews', async function (req, res) {
+    const jsonArray = await csvtojson().fromFile('./data.csv');
+    const newDataArray = [];
+    const learnDataArray = [];
+    const articleDataArray=[];
+    let fasttext = "";
+    for await (let item of jsonArray) {
+        if (item.commentsurl.trim() == '') continue;
+        let $ = await axios.fetchHTML(BASE_URL_MX + item.commentsurl);
+        let reviewsArticle = [];
+        let starsArticle = [];
+        let labels = [];
+        let titles = [];
+        let title = '';
+        let review = '';
+        let label = '';
+        $('.review-text-content span')
+            .each(function () {
+                review = $(this).text()
+                console.log(review);
+                reviewsArticle.push(review);
+
+            });
+
+        $('.review-title span').each(function () {
+            title = $(this).text();
+            console.log(title);
+            titles.push(title);
+
+        });
+        $('.review-rating span')
+            .each(function () {
+                let star = $(this).text();
+                console.log(star);
+                let formatStars= star.trim().split(" ")[0];
+                starsArticle.push(formatStars);
+                if (star != undefined && star != '') {
+                    if (parseInt(star) > 3) {
+                        label = '__label__2';
+                        labels.push(label);
+                    }
+                    if (parseInt(star) < 3) {
+                        label = '__label__1';
+                        labels.push(label);
+                    }
+                    else labels.push('')
+                } else { labels.push('') }
+            });
+
+        // let reviewSpan = $('#filter-info-section .a-row span').text();
+        // let commentRating = '';
+        // if (reviewSpan != undefined && reviewSpan.trim() != '') {
+        //     let splitreview = reviewSpan.split('|');
+        //     commentRating = splitreview[1].trim().split(' ')[0];;
+        // }
+        let pagination = $('.a-pagination .a-last a').attr('href');
+        console.log('pagination: ', pagination);
+        fasttext += label + " " + title + ": " + review + "\n";
+
+        while (pagination != undefined && pagination != '') {
+            let $ = await axios.fetchHTML(BASE_URL_MX + pagination);
+            $('.review-text-content span')
+                .each(function () {
+                    review = $(this).text()
+                    console.log(review);
+                    reviewsArticle.push(review);
+
+                });
+
+            $('.review-title span').each(function () {
+                title = $(this).text();
+                console.log(title);
+                titles.push(title);
+
+            });
+            $('.review-rating span')
+            .each(function () {
+                let star = $(this).text();
+                console.log(star);
+                let formatStars= star.trim().split(" ")[0];
+                starsArticle.push(formatStars);
+                if (star != undefined && star != '') {
+                    if (parseInt(star) > 3) {
+                        label = '__label__2';
+                        labels.push(label);
+                    }
+                    if (parseInt(star) < 3) {
+                        label = '__label__1';
+                        labels.push(label);
+                    }
+                    else labels.push('')
+                } else { labels.push('') }
+            });
+            pagination = $('.a-pagination .a-last a').attr('href');
+            fasttext += label + " " + title + ": " + review + "\n";
+        }
+
+
+        let reviewSpan = $('#filter-info-section .a-row span').text();
+        let commentRating = '';
+        if (reviewSpan != undefined && reviewSpan.trim() != '') {
+            let splitreview = reviewSpan.split('|');
+            commentRating = splitreview[1].trim().split(' ')[0];;
+        }
+        articleDataArray.push({
+            url:item.url,
+            stars:item.stars,
+            comments:commentRating,
+            price:item.price,
+            reviews:item.reviews
+         });
+        for (let x = 0; x < reviewsArticle.length; x++) {
+            let jsonData = {
+                stars: starsArticle[x],
+                review: reviewsArticle[x],
+                url: item.url,
+                price: item.price,
+                generalrating: item.stars,
+                commentrating: commentRating,
+                title: titles[x],
+                label: labels[x]
+            }
+            learnDataArray.push({
+                label: labels[x],
+                title: titles[x],
+                review: reviewsArticle[x]
+            });
+            newDataArray.push(jsonData);
+
+            
+        }
+
+    }
+
+
+
+
+    // console.log("ratings: ",ratings);
+    // let starRating = ratings[0].trim().split(' ')[0];
+    // let commentRating = ratings[1].trim().split(' ')[0];;
+    // console.log(`starsRating: ${starRating}\ncommentRating ${commentRating}`);
+    // starRatings.push(starRating);
+    // commentRatings.push(commentRating);
+
+    const fields = ['url', 'price', 'stars', 'review', 'generalrating', 'commentrating', 'label', 'title'];
+    const opts = { fields };
+    const parser = new Parser(opts);
+    const csv = parser.parse(newDataArray);
+    // fs.writeFile('articles_prods.csv', csv, function (err) {
+    //     if (err) throw err;
+    //     console.log("SAVED CSV DATA!");
+    // });
+    fs.writeFile('articles_2.csv', csv, function (err) {
+        if (err) throw err;
+        console.log("SAVED CSV DATA!");
+    });
+    const fields2 = ['label', 'title', 'review'];
+    const opts2 = { fields2 };
+    const parser2 = new Parser(opts2);
+    const csv2 = parser2.parse(learnDataArray);
+    // fs.writeFile('learndata_prods.csv', csv2, function (err) {
+    //     if (err) throw err;
+    //     console.log("SAVED CSV DATA!");
+    // });
+    fs.writeFile('learndata_wish.csv', csv2, function (err) {
+        if (err) throw err;
+        console.log("SAVED CSV DATA!");
+    });
+    fs.writeFile('fasttext_data_wl.txt', fasttext, function (err) {
+        if (err) throw err;
+        console.log("SAVED FAST TEXT DATA!");
+    });
+    // fs.writeFile('fasttext_data.txt', fasttext, function (err) {
+    //     if (err) throw err;
+    //     console.log("SAVED FAST TEXT DATA!");
+    // });
+
+
+    const fields3 = ['url', 'price', 'reviews','stars','comments'];
+    const opts3 = { fields3 };
+    const parser3 = new Parser(opts3);
+    const csv3 = parser3.parse(articleDataArray);
+    // fs.writeFile('data_prod.csv', csv3, function (err) {
+    //     if (err) throw err;
+    //     console.log("SAVED CSV DATA!");
+    // });
+    fs.writeFile('data_wishlist.csv', csv3, function (err) {
+        if (err) throw err;
+        console.log("SAVED CSV DATA!");
+    });
+})
 
 app.get('/', function (req, res) {
     res.send('hello world')
